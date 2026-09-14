@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Pixel-Perfect">
+  <defs>
+    <linearGradient id="pp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b5dc9"/>
+      <stop offset="1" stop-color="#41a6f6"/>
+    </linearGradient>
+    <clipPath id="pp-round"><rect x="2" y="2" width="44" height="44" rx="10"/></clipPath>
+  </defs>
+  <!-- app-icon tile -->
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#pp-bg)"/>
+  <!-- faint pixel grid to signal "pixel art" -->
+  <g clip-path="url(#pp-round)" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1">
+    <path d="M14 2V46 M24 2V46 M34 2V46 M2 14H46 M2 24H46 M2 34H46"/>
+  </g>
+  <!-- a few crisp colored pixels (the limited palette) -->
+  <g shape-rendering="crispEdges">
+    <rect x="6"  y="6"  width="8" height="8" fill="#ffcd75"/>
+    <rect x="34" y="34" width="8" height="8" fill="#38b764"/>
+    <rect x="34" y="6"  width="8" height="8" fill="#ef7d57" opacity="0.9"/>
+  </g>
+  <!-- pixel-perfect checkmark -->
+  <path d="M13 25 L21 33 L37 14" fill="none" stroke="#ffffff" stroke-width="6"
+        stroke-linecap="square" stroke-linejoin="miter"/>
+</svg>

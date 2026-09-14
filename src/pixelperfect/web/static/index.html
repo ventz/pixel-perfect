@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pixel-Perfect — AI pixel-art restorer</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f7f8fa; --panel2: #eef0f4; --ink: #1c1f29;
+    --muted: #6b7180; --accent: #2b8ae0; --good: #2e9e57; --bad: #d83440;
+    --line: #d9dde5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { padding: 14px 24px; border-bottom: 1px solid var(--line); display: flex;
+           align-items: center; gap: 12px; }
+  header img.logo { width: 34px; height: 34px; display: block; border-radius: 8px;
+           box-shadow: 0 1px 4px #0002; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header .tag { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 61px); }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 18px; overflow-y: auto; }
+  section.canvas { padding: 22px; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 26px 16px; text-align: center;
+          color: var(--muted); cursor: pointer; transition: .15s; }
+  .drop.hover { border-color: var(--accent); color: var(--ink); background: var(--panel2); }
+  .field { margin: 14px 0; }
+  .field label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
+                 margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+  .field input[type=range] { width: 100%; accent-color: var(--accent); }
+  .field input[type=number], .field select {
+     width: 100%; background: var(--panel2); border: 1px solid var(--line); color: var(--ink);
+     border-radius: 7px; padding: 7px 9px; }
+  .row { display: flex; gap: 8px; } .row > * { flex: 1; }
+  button { width: 100%; background: var(--accent); color: #001018; border: 0; border-radius: 8px;
+           padding: 11px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  button.ghost { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .views { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .view { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .view h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); display:flex; justify-content:space-between; align-items:center; min-height:28px;}
+  .imgwrap { background: repeating-conic-gradient(#0000 0 25%, #00000008 0 50%) 0 0/18px 18px, #fbfcfd;
+             border-radius: 8px; display:flex; align-items:center; justify-content:center; min-height: 320px; overflow:auto;}
+  .imgwrap img { max-width: 100%; image-rendering: pixelated; }
+  .stats { display:flex; gap:18px; flex-wrap:wrap; margin: 16px 2px; color: var(--muted); font-size: 13px;}
+  .stats b { color: var(--ink); }
+  .pill { padding: 2px 9px; border-radius: 99px; font-weight:700; font-size:12px;}
+  .palette { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px;}
+  .sw { width:22px; height:22px; border-radius:5px; border:1px solid #0006; cursor:pointer;}
+  .copytoast { position:fixed; transform:translate(-50%,-130%); background:#1c1f29; color:#fff;
+               padding:4px 9px; border-radius:6px; font-size:12px; z-index:200; pointer-events:none;
+               box-shadow:0 4px 12px #0004; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .empty { color: var(--muted); text-align:center; padding: 80px 0;}
+
+  /* ---- pixel editor (modal overlay) ---- */
+  #editor { display:none; position:fixed; inset:0; z-index:60; padding:12px;
+            background: rgba(15,18,26,.55); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+            align-items:center; justify-content:center; }
+  .ed-modal { background: var(--panel); border:1px solid var(--line); border-radius:14px;
+              box-shadow:0 24px 70px #0006; padding:18px; position:relative;
+              width:min(1600px,98vw); height:96vh; overflow:auto;
+              display:flex; flex-direction:column; }
+  #ed-close { margin-left:8px; flex:0 0 auto; width:36px; }
+  .ed-bar { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+  .ed-status { white-space:nowrap; }
+  .ed-tools { display:flex; gap:4px; align-items:center; }
+  .ed-tool { height:36px; min-width:36px; padding:0; font-size:15px; background: var(--panel2);
+             color: var(--ink); border:1px solid var(--line); border-radius:7px; cursor:pointer;
+             display:inline-flex; align-items:center; justify-content:center; }
+  .ed-tool.active { background: var(--accent); color:#001018; border-color: var(--accent); }
+  .ed-zbtn { padding:0 9px; font-size:13px; white-space:nowrap; }
+  .ed-wbtn { padding:0 12px; font-size:13px; gap:5px; font-weight:600; white-space:nowrap; }
+  .ed-zoom { min-width:38px; text-align:center; color: var(--muted); font-size:13px; line-height:36px; }
+  .ed-check { color: var(--muted); font-size:13px; display:flex; align-items:center; gap:5px; }
+  .ed-status { margin-left:auto; color: var(--muted); font-size:13px; }
+  .ed-main { display:flex; gap:18px; align-items:stretch; flex:1; min-height:0; }
+  .ed-stage { flex:1; min-width:280px; min-height:320px; display:flex; align-items:flex-start;
+              justify-content:center; padding:12px; overflow:auto;
+              background: repeating-conic-gradient(#0000 0 25%, #00000008 0 50%) 0 0/18px 18px, #fbfcfd;
+              border-radius:8px; }
+  .ed-canvaswrap { position:relative; line-height:0; }
+  .ed-canvaswrap canvas { position:absolute; top:0; left:0; }
+  #ed-canvas { image-rendering: pixelated; }
+  #ed-overlay { cursor: crosshair; }
+  .ed-side { width:240px; }
+  .ed-palette-head { font-size:12px; color: var(--muted); text-transform:uppercase;
+                     letter-spacing:.4px; margin-bottom:8px; display:flex; justify-content:space-between; }
+  .ed-cur { text-transform:none; letter-spacing:0; cursor:pointer; text-decoration:underline dotted; }
+  .ed-palette { display:flex; flex-wrap:wrap; gap:5px; }
+  .ed-sw { width:26px; height:26px; border-radius:6px; border:2px solid #0003; cursor:pointer; padding:0; }
+  .ed-sw.active { border-color: var(--accent); box-shadow:0 0 0 2px var(--accent); }
+  .ed-addrow { display:flex; gap:8px; align-items:center; margin-top:12px; }
+  .ed-addrow input[type=color] { width:40px; height:32px; padding:0; border:1px solid var(--line);
+                                 border-radius:7px; background: var(--panel2); }
+  .ed-mini { flex:1; background: var(--panel2); color: var(--ink); border:1px solid var(--line);
+             border-radius:7px; padding:7px; cursor:pointer; }
+  .ed-hint { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.4; }
+  .ed-export { display:flex; gap:8px; margin-top:16px; }
+  .ed-export button { margin:0; }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="/static/logo.svg" alt="Pixel-Perfect logo" title="Pixel-Perfect">
+  <h1 title="Pixel-Perfect — AI pixel-art restorer">Pixel-Perfect</h1>
+  <span class="tag" title="Detects the underlying pixel grid in upscaled or AI-generated “pixel art” and rebuilds it at true native resolution.">Turn AI &ldquo;pixel art&rdquo; into a true, 100% pixel-perfect image.</span>
+</header>
+<main>
+  <aside>
+    <div id="drop" class="drop" title="Upload a source image (PNG, JPEG, WebP, GIF, or BMP). Click to browse, or drag and drop a file here.">Drop an image here<br/>or click to choose<input id="file" type="file" accept="image/*" title="Choose an image file to restore" hidden></div>
+
+    <div class="field">
+      <label title="Number of distinct colors to quantize the output to. 0 lets Pixel-Perfect detect the color count automatically.">Palette size <span id="palv">auto</span></label>
+      <input id="pal" type="range" min="0" max="64" value="0" step="1" title="Number of distinct colors to quantize the output to. 0 = auto-detect.">
+      <div class="hint">0 = auto-detect color count</div>
+    </div>
+    <div class="field">
+      <label title="Snap the output colors to a known palette (e.g. NES, PICO-8) instead of auto-detecting them.">Or snap to a named palette</label>
+      <select id="palname" title="Snap the output colors to a known palette instead of auto-detecting them. Choose “— none —” to keep detected colors."><option value="">— none —</option></select>
+    </div>
+    <div class="field">
+      <label title="Force the native pixel-grid dimensions in cells. Leave both blank to auto-detect the grid.">Native size override (cells)</label>
+      <div class="row">
+        <input id="nw" type="number" min="0" placeholder="auto W" title="Native grid width in cells. Leave blank to auto-detect.">
+        <input id="nh" type="number" min="0" placeholder="auto H" title="Native grid height in cells. Leave blank to auto-detect.">
+      </div>
+      <div class="hint">Leave blank to auto-detect</div>
+    </div>
+    <div class="field">
+      <label title="How aggressively to smooth noise and JPEG artifacts before sampling. 0 = none, 3 = strongest.">Denoise <span id="dnv">1.0</span></label>
+      <input id="dn" type="range" min="0" max="3" value="1" step="0.1" title="How aggressively to smooth noise and JPEG artifacts before sampling. 0 = none, 3 = strongest.">
+    </div>
+    <div class="field">
+      <label title="Fraction of each cell’s interior used when sampling its color. Lower values ignore more of the anti-aliased rim.">Cell interior <span id="intv">0.50</span></label>
+      <input id="int" type="range" min="0.2" max="0.9" value="0.5" step="0.05" title="Fraction of each cell’s interior used when sampling its color. Lower values ignore more of the anti-aliased rim.">
+      <div class="hint">Lower = ignore more anti-aliased rim</div>
+    </div>
+    <div class="field">
+      <label title="How to reduce each cell’s sampled pixels down to a single color.">Per-cell color</label>
+      <select id="method" title="How to reduce each cell’s sampled pixels down to a single color.">
+        <option value="median" title="Per-channel median — robust to outliers (recommended)">median (robust)</option>
+        <option value="mode" title="Most frequently occurring color in the cell">mode</option>
+        <option value="medoid" title="The actual sampled pixel closest to all others">medoid</option>
+        <option value="mean" title="Average color — smoothest but blurs hard edges">mean</option>
+      </select>
+    </div>
+    <div class="field">
+      <label title="On-screen preview zoom only. Does not affect the native-resolution download.">Preview upscale <span id="upv">8&times;</span></label>
+      <input id="up" type="range" min="1" max="16" value="8" step="1" title="On-screen preview zoom only. Does not affect the native-resolution download.">
+    </div>
+    <button id="run" title="Detect the pixel grid and rebuild a clean, 100% pixel-perfect image. With no image uploaded, runs on a built-in example.">Make pixel-perfect</button>
+    <button id="analyze" class="ghost" title="Detect the grid and show the confidence heatmap without producing a final result. With no image uploaded, runs on a built-in example.">Analyze only</button>
+    <a id="dl" download="pixel-perfect.png"><button class="ghost" id="dlbtn" disabled title="Download the result at native 1× resolution (one image pixel per cell).">Download result (1&times;)</button></a>
+  </aside>
+
+  <section class="canvas">
+    <div class="stats" id="stats"><span class="empty" style="padding:0">Upload an image to begin.</span></div>
+    <div class="views">
+      <div class="view"><h3><span title="Your uploaded source image, shown at its original resolution.">Original</span></h3><div class="imgwrap" id="origwrap" title="Your uploaded source image, shown at its original resolution."><div class="empty">no image</div></div></div>
+      <div class="view"><h3><span title="The reconstructed pixel-perfect image. Grid size and color count are shown beside it.">Result <span id="resmeta" style="color:var(--muted);font-weight:400"></span></span><button id="editbtn" class="ghost" style="width:auto;padding:5px 12px;margin:0" disabled title="Open the manual pixel editor to touch up the result.">✎ Edit pixels</button></h3><div class="imgwrap" id="reswrap" title="The reconstructed pixel-perfect image."><div class="empty">no result</div></div></div>
+    </div>
+    <div class="views" style="margin-top:18px">
+      <div class="view"><h3><span title="Per-cell certainty of the detected color: green cells are solid, red cells are ambiguous and worth reviewing.">Confidence heatmap</span><span class="hint">green = solid, red = ambiguous</span></h3><div class="imgwrap" id="confwrap" title="Per-cell certainty: green = solid, red = ambiguous."><div class="empty">—</div></div></div>
+      <div class="view"><h3><span title="The colors extracted for the result. Click a swatch to copy its hex code.">Palette</span></h3><div class="palette" id="pal_sw" title="Click a swatch to copy its hex code."></div></div>
+    </div>
+
+    <div id="editor"></div>
+  </section>
+</main>
+
+<script src="/static/editor.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let fileBlob = null;
+let lastResult = null;
+PixelEditor.mount($("#editor"));
+
+// live slider labels
+$("#pal").oninput = e => $("#palv").textContent = e.target.value==="0"?"auto":e.target.value;
+$("#dn").oninput  = e => $("#dnv").textContent = (+e.target.value).toFixed(1);
+$("#int").oninput = e => $("#intv").textContent = (+e.target.value).toFixed(2);
+$("#up").oninput  = e => $("#upv").textContent = e.target.value+"×";
+
+// drag & drop
+const drop = $("#drop");
+drop.onclick = () => $("#file").click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("hover"); };
+drop.ondragleave = () => drop.classList.remove("hover");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("hover"); setFile(e.dataTransfer.files[0]); };
+$("#file").onchange = e => setFile(e.target.files[0]);
+
+// fall back to the bundled example when no image has been provided
+async function ensureFile() {
+  if (fileBlob) return true;
+  try {
+    const r = await fetch("/static/example.png");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    setFile(new File([blob], "example.png", { type: blob.type || "image/png" }));
+    return true;
+  } catch (e) {
+    $("#stats").innerHTML = `<span style="color:var(--bad)">⚠ Couldn't load example: ${e.message}</span>`;
+    return false;
+  }
+}
+
+function setFile(f) {
+  if (!f) return;
+  fileBlob = f;
+  $("#origwrap").innerHTML = `<img src="${URL.createObjectURL(f)}">`;
+  drop.textContent = f.name;
+}
+
+function formData(extra) {
+  const fd = new FormData();
+  fd.append("file", fileBlob);
+  for (const [k,v] of Object.entries(extra)) if (v!==null && v!=="") fd.append(k, v);
+  return fd;
+}
+
+async function postForm(url, extra, label) {
+  setBusy(true, label);
+  try {
+    const r = await fetch(url, {method:"POST", body: formData(extra)});
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try { msg = (await r.json()).error || msg; } catch {}
+      throw new Error(msg);
+    }
+    return await r.json();
+  } catch (e) {
+    $("#stats").innerHTML = `<span style="color:var(--bad)">⚠ ${e.message}</span>`;
+    return null;
+  } finally {
+    setBusy(false);
+  }
+}
+
+$("#analyze").onclick = async () => {
+  if (!await ensureFile()) return;
+  const d = await postForm("/api/analyze", {denoise_strength:$("#dn").value}, "Analyzing…");
+  if (!d) return;
+  showStats(d, true);
+  $("#confwrap").innerHTML = `<img src="${d.confidence_map}">`;
+};
+
+$("#run").onclick = async () => {
+  if (!await ensureFile()) return;
+  if (PixelEditor.isDirty() && !confirm("You have unsaved manual edits. Re-running will discard them. Continue?")) return;
+  const d = await postForm("/api/restore", {
+    palette_size: $("#pal").value, palette_name: $("#palname").value,
+    native_w: $("#nw").value, native_h: $("#nh").value,
+    denoise_strength: $("#dn").value, method: $("#method").value,
+    interior: $("#int").value, upscale: $("#up").value,
+  }, "Restoring…");
+  if (!d) return;
+  $("#reswrap").innerHTML = `<img src="${d.preview_png}" style="width:100%;height:auto;image-rendering:pixelated">`;
+  $("#confwrap").innerHTML = `<img src="${d.confidence_map}" style="width:100%;height:auto;image-rendering:pixelated">`;
+  $("#resmeta").textContent = `${d.nx}×${d.ny}, ${d.n_colors} colors`;
+  $("#pal_sw").innerHTML = d.palette.map(c=>`<div class="sw" style="background:${c}" title="${c}"></div>`).join("");
+  $("#dl").href = d.native_png; $("#dlbtn").disabled = false;
+  lastResult = d; $("#editbtn").disabled = false;
+  showStats(d, false);
+};
+
+$("#editbtn").onclick = () => {
+  if (!lastResult) return;
+  PixelEditor.open(lastResult);
+  $("#editor").scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+// warn before leaving with unsaved edits
+window.addEventListener("beforeunload", (e) => {
+  if (PixelEditor.isDirty()) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// click a result-palette swatch to copy its hex
+function copyToast(msg, x, y) {
+  const t = document.createElement("div");
+  t.className = "copytoast"; t.textContent = msg;
+  t.style.left = x + "px"; t.style.top = y + "px";
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 900);
+}
+$("#pal_sw").addEventListener("click", (e) => {
+  const sw = e.target.closest(".sw");
+  if (!sw) return;
+  const hex = sw.title;
+  if (navigator.clipboard) navigator.clipboard.writeText(hex);
+  copyToast("Copied " + hex, e.clientX, e.clientY);
+});
+
+function showStats(d, analyzeOnly) {
+  const c = d.confidence;
+  const col = c>0.8?"var(--good)":c>0.5?"#ffcd75":"var(--bad)";
+  $("#stats").innerHTML =
+    `<span>Grid: <b>${d.nx}×${d.ny}</b></span>` +
+    (d.n_colors!==undefined?`<span>Colors: <b>${d.n_colors}</b></span>`:"") +
+    `<span>Confidence: <span class="pill" style="background:${col};color:#001">${(c*100).toFixed(0)}%</span></span>` +
+    `<span>Residual: <b>${d.residual}</b></span>` +
+    (analyzeOnly?`<span class="hint">candidates x:${d.x_candidates.slice(0,4)} y:${d.y_candidates.slice(0,4)}</span>`:"");
+}
+
+function setBusy(b, label) {
+  $("#run").disabled = $("#analyze").disabled = b || !fileBlob;
+  if (b) $("#run").textContent = label; else $("#run").textContent = "Make pixel-perfect";
+}
+
+// load named palettes
+fetch("/api/palettes").then(r=>r.json()).then(p => {
+  for (const name of Object.keys(p)) {
+    const o = document.createElement("option"); o.value=name; o.textContent=`${name} (${p[name].length})`;
+    $("#palname").appendChild(o);
+  }
+});
+</script>
+</body>
+</html>
