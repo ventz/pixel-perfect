@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.1.0]
+## [0.1.0] — 2026-09-14
 
 Initial public release.
 
@@ -47,6 +47,9 @@ Initial public release.
   conflict with autocorrelation (other than 1/2 or 1/3 of it) are ignored.
 - Grid selection uses a relative tie tolerance and never lets an exact
   subdivision win a tie.
+- Sparse line art is no longer detected at half resolution: when a chosen axis
+  has edges inside its cells, about twice as many cells are tried and kept only
+  if the fit clearly improves.
 - Palette clusters are represented by the real color nearest their weighted
   center instead of the most frequent member.
 - Transparency in palette PNG/GIF and RGB PNG metadata is loaded as alpha.

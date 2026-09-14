@@ -24,7 +24,15 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import color as _color
-from .grid import COMMON_SIZES, GridResult, fit_gridlines, gradient_profiles, periodicity
+from .grid import (
+    COMMON_SIZES,
+    GridResult,
+    _smooth,
+    _snap_common,
+    fit_gridlines,
+    gradient_profiles,
+    periodicity,
+)
 from .sample import CellField, _as_u8, collapse, gather_cells
 
 __all__ = ["GridScore", "reconstruction_residual", "select_grid"]
@@ -116,6 +124,118 @@ def reconstruction_residual(
     return 0.7 * mean_res + 0.3 * p90, per_cell
 
 
+# Subharmonic refinement (see _refine_subharmonic). Measured mid-cell/gridline
+# edge-energy ratios: correct grids <= 0.10 (highest with small, blurred cells),
+# sparse line art detected at half resolution 0.15-0.16. Because that margin is
+# narrow, a doubled grid must also cut the residual by at least 10%; the doubled
+# grids that overfit normal images only ever improved it by a few percent.
+_MID_EDGE_RATIO = 0.125
+_SUBHARMONIC_GAIN = 0.9
+
+
+def _mid_edge_ratio(profile: np.ndarray, bounds: np.ndarray) -> float:
+    """Mean edge energy at cell midpoints relative to the fitted gridlines.
+
+    Near zero when cells are flat (the grid is right); substantial when true
+    boundaries fall inside the cells — the signature of a grid at half the
+    true resolution.
+    """
+    n = len(bounds) - 1
+    if n < 2:
+        return 0.0
+    period = (bounds[-1] - bounds[0]) / n
+    e = _smooth(np.asarray(profile, dtype=np.float64), max(1, int(round(period * 0.15))))
+    if e.max() <= 0:
+        return 0.0
+    e = e / e.max()
+    b = np.round(bounds).astype(int)
+
+    def peak(p: int) -> float:
+        return float(e[max(0, p - 1) : min(e.size, p + 2)].max(initial=0.0))
+
+    lines = np.mean([peak(p) for p in b[1:-1]])
+    mids = np.mean([peak(int(round((b[i] + b[i + 1]) / 2))) for i in range(n)])
+    return float(mids / max(lines, 1e-9))
+
+
+def _refine_subharmonic(
+    arr: np.ndarray,
+    lab: np.ndarray,
+    profiles: tuple[np.ndarray, np.ndarray],
+    chosen: GridScore,
+    *,
+    interior_frac: float,
+    method: str,
+    fit_kwargs: dict,
+    x_forced: bool,
+    y_forced: bool,
+) -> GridScore:
+    """Try doubling an axis's cell count when the chosen cells contain edges.
+
+    Sparse line art (1px lines on a flat background) can have an edge profile
+    that repeats every *two* cells, so autocorrelation and FFT both report the
+    doubled period and the true count is never proposed. Always adding 2N to the
+    candidate set overfits normal images, so the doubled grid is only tried when
+    real edges sit inside the chosen cells, and only kept when it explains the
+    image clearly better.
+    """
+    h, w = arr.shape[:2]
+    best = chosen
+    for axis, forced in (("x", x_forced), ("y", y_forced)):
+        if forced:
+            continue
+        g = best.grid
+        prof = profiles[0] if axis == "x" else profiles[1]
+        bounds = g.x_bounds if axis == "x" else g.y_bounds
+        n = g.nx if axis == "x" else g.ny
+        length = w if axis == "x" else h
+        max_n = min(256, length // 2)
+        if 2 * n > max_n or _mid_edge_ratio(prof, bounds) <= _MID_EDGE_RATIO:
+            continue
+        # The coarse count may itself be off by one (22 for a true 24), so
+        # doubling alone can miss (44 for 48): score the doubled count's
+        # neighbors and nearest common size too, with the usual selection rule.
+        dbl = 2 * n
+        counts = []
+        for v in (dbl, _snap_common(dbl, 0.12), dbl - 1, dbl + 1, dbl - 2, dbl + 2):
+            if n < v <= max_n and v not in counts:
+                counts.append(v)
+        trials: list[GridScore] = []
+        for m in counts:
+            fine = fit_gridlines(prof, m, length, **fit_kwargs)
+            if axis == "x":
+                grid = GridResult(fine, g.y_bounds, m, g.ny, w / m, g.period_y)
+            else:
+                grid = GridResult(g.x_bounds, fine, g.nx, m, g.period_x, h / m)
+            field = collapse(arr, grid, interior_frac=interior_frac, method=method, lab=lab)
+            residual, per_cell = reconstruction_residual(
+                arr, grid, field, interior_frac=interior_frac, src_lab=lab
+            )
+            conf = float(np.clip(1.0 - residual / _RESIDUAL_BAD, 0.0, 1.0))
+            trials.append(GridScore(grid, field, residual, per_cell, conf, fallback=best.fallback))
+        winner = _pick(trials)
+        if winner.residual <= _SUBHARMONIC_GAIN * best.residual:
+            best = winner
+    return best
+
+
+def _pick(scored: list[GridScore]) -> GridScore:
+    """Min residual within a small relative tolerance; then coarser, common, fewer."""
+    best_res = min(s.residual for s in scored)
+    tol = best_res * 0.02 + 1e-4
+    ok = [s for s in scored if s.residual <= best_res + tol]
+    # An exact subdivision of a tied grid explains the image equally well by
+    # construction (its interiors never straddle a true edge); prefer the coarser.
+    ok = [s for s in ok if not any(_is_subdivision(s, t) for t in ok)]
+
+    def tiebreak(s: GridScore):
+        common = -((s.grid.nx in COMMON_SIZES) + (s.grid.ny in COMMON_SIZES))
+        return (common, s.grid.nx + s.grid.ny)
+
+    ok.sort(key=lambda s: (tiebreak(s), s.residual))
+    return ok[0]
+
+
 def _is_subdivision(fine: GridScore, coarse: GridScore) -> bool:
     """True if ``fine`` splits every cell of ``coarse`` into an integer sub-grid."""
     f, c = fine.grid, coarse.grid
@@ -168,7 +288,6 @@ def select_grid(
             conf = float(np.clip(1.0 - residual / _RESIDUAL_BAD, 0.0, 1.0))
             scored.append(GridScore(grid, field, residual, per_cell, conf, fallback=fallback))
 
-    best_res = min(s.residual for s in scored)
     # The candidate set is kept tight around the autocorrelation period
     # estimate, so the true N shows up as the minimum-residual local elbow
     # (residual would resume falling for much finer grids that overfit, but
@@ -176,18 +295,19 @@ def select_grid(
     # only a tiny *relative* tolerance (plus a noise-level floor) to break
     # near-exact ties. An absolute floor comparable to a clean image's residual
     # would let a clearly worse grid count as "tied".
-    tol = best_res * 0.02 + 1e-4
-    ok = [s for s in scored if s.residual <= best_res + tol]
-    # An exact subdivision of a tied grid explains the image equally well by
-    # construction (its interiors never straddle a true edge); prefer the coarser.
-    ok = [s for s in ok if not any(_is_subdivision(s, t) for t in ok)]
-
-    def tiebreak(s: GridScore):
-        common = -((s.grid.nx in COMMON_SIZES) + (s.grid.ny in COMMON_SIZES))
-        return (common, s.grid.nx + s.grid.ny)
-
-    ok.sort(key=lambda s: (tiebreak(s), s.residual))
-    chosen = ok[0]
+    chosen = _pick(scored)
+    if not fallback:
+        chosen = _refine_subharmonic(
+            arr,
+            lab,
+            (prof_x, prof_y),
+            chosen,
+            interior_frac=interior_frac,
+            method=method,
+            fit_kwargs=fit_kwargs,
+            x_forced=len(xs) == 1,
+            y_forced=len(ys) == 1,
+        )
     if fallback:
         chosen.grid_confidence = 0.0
     elif len(xs) == 1 and len(ys) == 1:

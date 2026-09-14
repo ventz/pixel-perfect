@@ -107,6 +107,17 @@ def test_forced_size_has_no_grid_confidence(synth):
     assert res.score.fallback is False
 
 
+@pytest.mark.parametrize("seed", [0, 1])
+def test_sparse_line_art_not_detected_at_half_resolution(thin, seed):
+    """Rows of mostly-empty line art repeat every two cells; don't halve the grid."""
+    make_thin_sprite, distort, thin_metrics, _ = thin
+    gt = make_thin_sprite(48, 48)
+    img = distort(gt, seed=seed, avg_cell=14, drift=0.08, blur=0.8, jpeg=88)
+    res = restore(img, PipelineParams())
+    assert (res.nx, res.ny) == (48, 48)
+    assert thin_metrics(gt, res.native)["exact"] > 0.97
+
+
 def test_thin_sprite_autodetect(thin):
     make_thin_sprite, distort, thin_metrics, _ = thin
     gt = make_thin_sprite(40, 40)

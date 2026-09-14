@@ -109,6 +109,15 @@ never straddle a true edge, so it can always tie), then common sizes and fewer
 cells win. The OKLab conversion, profiles, and each axis's gridline fits are
 computed once per image and shared across all candidate combinations.
 
+**Half-resolution check.** Sparse line art (1 px lines on a mostly empty
+background) can produce an edge profile that repeats every *two* cells, so the
+true count is never among the candidates. After selection, each detected axis is
+checked for real edge energy at its cell *midpoints*. Only if the midpoints
+carry edges (on a correct grid they fall in flat color) are about twice as many
+cells tried, including the neighbors and nearest common size. The finer grid is
+kept only if it cuts the residual by at least 10%. Both gates are needed: simply
+always proposing twice the count was tested and overfit normal images.
+
 Two confidences are reported:
 
 - **`confidence`** — how well the output explains the source (residual-based).
@@ -140,11 +149,10 @@ AI output and produce a guaranteed-clean result.
 - Extreme drift (cells varying more than `fit_window_frac`, 35% by default) plus
   heavy blur can land `N` off by one; the
   [manual override](how-to/fix-hard-cases.md) fixes this in one click.
-- **Sparse line-art sprites** (thin 1 px lines on a large flat background) are
-  the hardest case: when rows are mostly empty, the edge profile can repeat every
-  *two* cells, so detection may return half the true size on one axis. A low
-  `grid_confidence` flags it; force `native_w`/`native_h` to fix it. Always
-  proposing a doubled size was tested and rejected — it overfits normal images.
+- **Off-by-one on sparse or very small cells.** Where most cells are flat
+  background, or cells are only ~5 px, a grid one cell larger or smaller can
+  explain the image equally well, and detection can land on it (e.g. 37 instead
+  of 40). Force `native_w`/`native_h` to fix it.
 - There is no unique "true" image to recover from a badly blurred generation —
   geometry can always be made perfect, but fidelity to intent cannot. The
   confidence score tells you when to re-roll the generation instead.
