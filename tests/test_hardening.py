@@ -118,6 +118,26 @@ def test_sparse_line_art_not_detected_at_half_resolution(thin, seed):
     assert thin_metrics(gt, res.native)["exact"] > 0.97
 
 
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_very_small_cells_not_detected_one_finer(synth, seed):
+    """5px cells: a grid one cell finer fits ~1.5% better per axis; don't take it."""
+    _, distort = synth
+    native = make_native(seed, 32, 32, 8)
+    img = distort(native, seed=seed, avg_cell=5, drift=0.05, blur=0.6, jpeg=90)
+    res = restore(img, PipelineParams())
+    assert (res.nx, res.ny) == (32, 32)
+
+
+def test_sparse_sprite_off_by_three_tie_resolved_by_period(thin):
+    """37 and 40 cells explain a sparse sprite equally well; the period says 40."""
+    make_thin_sprite, distort, thin_metrics, _ = thin
+    gt = make_thin_sprite(40, 40)
+    img = distort(gt, seed=2, avg_cell=16, drift=0.08, blur=0.8, jpeg=88)
+    res = restore(img, PipelineParams())
+    assert (res.nx, res.ny) == (40, 40)
+    assert thin_metrics(gt, res.native)["exact"] > 0.97
+
+
 def test_thin_sprite_autodetect(thin):
     make_thin_sprite, distort, thin_metrics, _ = thin
     gt = make_thin_sprite(40, 40)

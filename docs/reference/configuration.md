@@ -59,7 +59,7 @@ image.
 | Symptom | Try |
 |---------|-----|
 | Wrong grid size detected (often with low `grid_confidence`) | Set `native_w`/`native_h` explicitly. |
-| Size off by one on sparse line art or very small (~5 px) cells | Force `native_w`/`native_h`. |
+| Canvas a cell or two off on a sprite with wide empty margins (the sprite itself is correct) | Force `native_w`/`native_h` for an exact canvas size. |
 | Colors look washed out | Lower `interior_frac` (e.g. 0.35) to avoid AA bleed. |
 | Too many near-duplicate colors | Set `palette_size`, or raise `merge_threshold`. |
 | Grid wobbles on a clean image | Raise `fit_smoothness`. |

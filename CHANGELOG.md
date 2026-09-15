@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- Grid-size selection now weighs agreement with the measured cell period, fixing
+  two off-by-one cases: very small (~5 px) cells detected one cell too fine
+  (33 instead of 32), and sparse sprites where a smaller count tied with the
+  true one (37 instead of 40). On sprites with wide empty margins, the number of
+  margin cells may differ by one or two from 0.1.0; the sprite's cells are
+  unchanged.
+
 ## [0.1.0] — 2026-09-14
 
 Initial public release.

@@ -103,10 +103,17 @@ per-cell residual doubles as a **confidence heatmap**. Scoring on the eroded
 interior also prevents the metric from preferring a needlessly fine grid. With
 alpha, a pixel whose opacity disagrees with its cell counts as a bad match.
 
-Selection takes the minimum residual with a small relative tolerance. Among
-tied grids, an exact subdivision of another tied grid is dropped (its interiors
-never straddle a true edge, so it can always tie), then common sizes and fewer
-cells win. The OKLab conversion, profiles, and each axis's gridline fits are
+Selection minimizes the residual **scaled by period agreement**: each
+candidate's residual is multiplied by `1 + 2 × (dev_x + dev_y)`, where `dev` is
+the relative distance from its implied cell size (`length / N`) to the nearest
+measured period. Residual alone still drifts toward finer grids by a percent or
+two — enough to pick 33 over 32 on 5 px cells, or let 37 "tie" with 40 on a
+sparse sprite — while the measured period is precise in both cases. A 3%
+mismatch costs 6%, more than a needlessly fine grid gains and far less than a
+real improvement. Scores within a small relative tolerance of the best are
+tied. Among tied grids, an exact subdivision of another tied grid is dropped
+(its interiors never straddle a true edge, so it can always tie), then common
+sizes and fewer cells win. The OKLab conversion, profiles, and each axis's gridline fits are
 computed once per image and shared across all candidate combinations.
 
 **Half-resolution check.** Sparse line art (1 px lines on a mostly empty
@@ -149,10 +156,11 @@ AI output and produce a guaranteed-clean result.
 - Extreme drift (cells varying more than `fit_window_frac`, 35% by default) plus
   heavy blur can land `N` off by one; the
   [manual override](how-to/fix-hard-cases.md) fixes this in one click.
-- **Off-by-one on sparse or very small cells.** Where most cells are flat
-  background, or cells are only ~5 px, a grid one cell larger or smaller can
-  explain the image equally well, and detection can land on it (e.g. 37 instead
-  of 40). Force `native_w`/`native_h` to fix it.
+- **Flat margins have no true cell count.** A sprite on a wide empty background
+  can come out with a cell or two more or fewer *margin* cells on one axis (for
+  example 62×64 rather than 64×64) — the sprite's own cells are identical either
+  way, since nothing in a flat margin shows where cells begin. Force
+  `native_w`/`native_h` if you need an exact canvas size.
 - There is no unique "true" image to recover from a badly blurred generation —
   geometry can always be made perfect, but fidelity to intent cannot. The
   confidence score tells you when to re-roll the generation instead.

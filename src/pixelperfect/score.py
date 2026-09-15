@@ -29,6 +29,8 @@ from .grid import (
     GridResult,
     _smooth,
     _snap_common,
+    autocorr_period,
+    fft_period,
     fit_gridlines,
     gradient_profiles,
     periodicity,
@@ -132,6 +134,11 @@ def reconstruction_residual(
 _MID_EDGE_RATIO = 0.125
 _SUBHARMONIC_GAIN = 0.9
 
+# Residual multiplier per unit relative deviation of a candidate's cell size from
+# the measured period (summed over both axes). A 3% mismatch costs 6% — more
+# than the 1-3% a needlessly fine grid gains, far less than a real improvement.
+_PERIOD_PENALTY = 2.0
+
 
 def _mid_edge_ratio(profile: np.ndarray, bounds: np.ndarray) -> float:
     """Mean edge energy at cell midpoints relative to the fitted gridlines.
@@ -219,11 +226,28 @@ def _refine_subharmonic(
     return best
 
 
-def _pick(scored: list[GridScore]) -> GridScore:
-    """Min residual within a small relative tolerance; then coarser, common, fewer."""
-    best_res = min(s.residual for s in scored)
+def _period_estimates(profile: np.ndarray) -> list[float]:
+    """Finite period estimates for an axis (autocorrelation and FFT)."""
+    return [p for p in (autocorr_period(profile), fft_period(profile)) if np.isfinite(p) and p > 0]
+
+
+def _period_deviation(length: int, n: int, estimates: list[float]) -> float:
+    """Relative distance from ``length / n`` to the nearest measured period."""
+    if not estimates:
+        return 0.0
+    cell = length / n
+    return min(abs(cell - p) / p for p in estimates)
+
+
+def _pick(scored: list[GridScore], key=None) -> GridScore:
+    """Min score within a small relative tolerance; then coarser, common, fewer.
+
+    ``key`` maps a candidate to the value being minimized (default: residual).
+    """
+    key = key or (lambda s: s.residual)
+    best_res = min(key(s) for s in scored)
     tol = best_res * 0.02 + 1e-4
-    ok = [s for s in scored if s.residual <= best_res + tol]
+    ok = [s for s in scored if key(s) <= best_res + tol]
     # An exact subdivision of a tied grid explains the image equally well by
     # construction (its interiors never straddle a true edge); prefer the coarser.
     ok = [s for s in ok if not any(_is_subdivision(s, t) for t in ok)]
@@ -232,7 +256,7 @@ def _pick(scored: list[GridScore]) -> GridScore:
         common = -((s.grid.nx in COMMON_SIZES) + (s.grid.ny in COMMON_SIZES))
         return (common, s.grid.nx + s.grid.ny)
 
-    ok.sort(key=lambda s: (tiebreak(s), s.residual))
+    ok.sort(key=lambda s: (tiebreak(s), key(s)))
     return ok[0]
 
 
@@ -277,7 +301,11 @@ def select_grid(
     x_fits = {nx: fit_gridlines(prof_x, nx, w, **fit_kwargs) for nx in xs}
     y_fits = {ny: fit_gridlines(prof_y, ny, h, **fit_kwargs) for ny in ys}
 
+    est_x = _period_estimates(prof_x)
+    est_y = _period_estimates(prof_y)
+
     scored: list[GridScore] = []
+    adjusted: dict[int, float] = {}
     for nx in xs:
         for ny in ys:
             grid = GridResult(x_fits[nx], y_fits[ny], int(nx), int(ny), w / nx, h / ny)
@@ -286,7 +314,10 @@ def select_grid(
                 arr, grid, field, interior_frac=interior_frac, src_lab=lab
             )
             conf = float(np.clip(1.0 - residual / _RESIDUAL_BAD, 0.0, 1.0))
-            scored.append(GridScore(grid, field, residual, per_cell, conf, fallback=fallback))
+            s = GridScore(grid, field, residual, per_cell, conf, fallback=fallback)
+            scored.append(s)
+            dev = _period_deviation(w, nx, est_x) + _period_deviation(h, ny, est_y)
+            adjusted[id(s)] = residual * (1.0 + _PERIOD_PENALTY * dev)
 
     # The candidate set is kept tight around the autocorrelation period
     # estimate, so the true N shows up as the minimum-residual local elbow
@@ -295,7 +326,13 @@ def select_grid(
     # only a tiny *relative* tolerance (plus a noise-level floor) to break
     # near-exact ties. An absolute floor comparable to a clean image's residual
     # would let a clearly worse grid count as "tied".
-    chosen = _pick(scored)
+    #
+    # Selection uses the residual scaled by how far each candidate's implied
+    # cell size (length / N) is from the measured period. Residual alone still
+    # drifts toward finer grids by a percent or two, which is enough to pick
+    # N+1 on very small cells (5px: 33 over 32) and to make an off-by-three
+    # count "tie" on sparse sprites; the measured period is precise in both.
+    chosen = _pick(scored, key=lambda s: adjusted[id(s)])
     if not fallback:
         chosen = _refine_subharmonic(
             arr,
