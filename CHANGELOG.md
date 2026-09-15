@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-09-15
+
 ### Fixed
 - Grid-size selection now weighs agreement with the measured cell period, fixing
   two off-by-one cases: very small (~5 px) cells detected one cell too fine
@@ -87,5 +89,6 @@ Initial public release.
 - `select_grid`'s `interior_frac` default aligned to 0.5 with the rest of the
   pipeline.
 
-[Unreleased]: https://github.com/ventz/pixel-perfect/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ventz/pixel-perfect/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ventz/pixel-perfect/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ventz/pixel-perfect/releases/tag/v0.1.0

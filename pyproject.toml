@@ -1,6 +1,6 @@
 [project]
 name = "pixel-perfect"
-version = "0.1.0"
+version = "0.1.1"
 description = "Restore AI-generated 'pixel art' into true, 100% pixel-perfect images."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -21,7 +21,7 @@ from .pipeline import (
     upscale,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "PipelineParams",
