@@ -8,7 +8,7 @@ Turn AI-generated "pixel art" — which only *looks* like pixel art — into a *
 
 ![Before: blurry, drifting AI output. After: crisp pixel-perfect restoration](docs/images/before-after.png)
 
-<sub>Left: a detail of an AI-generated sprite (`examples/example-image.png`). Right: the same region of the restored native image, nearest-neighbor upscaled for viewing.</sub>
+<sub>Left: an AI-generated sprite (`examples/example-image.png`), full and zoomed. Right: the restored native image, nearest-neighbor upscaled onto the same regions for viewing.</sub>
 
 ## Table of Contents
 
